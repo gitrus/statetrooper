@@ -436,6 +436,37 @@ func Benchmark_accessCurrentState(b *testing.B) {
 	}
 }
 
+func Benchmark_accessCurrentStateWithMetadata(b *testing.B) {
+	fsm := NewFSM[CustomStateEnum](CustomStateEnumA, 10)
+	fsm.AddRule(CustomStateEnumA, CustomStateEnumB)
+	fsm.AddRule(CustomStateEnumB, CustomStateEnumA)
+
+	metadata := map[string]string{
+		"reason": "benchmark transition",
+		"user":   "benchmark",
+	}
+
+	fsm.Transition(CustomStateEnumB, metadata)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = fsm.CurrentStateWithMetadata()
+	}
+}
+
+func Benchmark_accessCurrentStateWithEmptyMetadata(b *testing.B) {
+	fsm := NewFSM[CustomStateEnum](CustomStateEnumA, 10)
+	fsm.AddRule(CustomStateEnumA, CustomStateEnumB)
+	fsm.AddRule(CustomStateEnumB, CustomStateEnumA)
+
+	fsm.Transition(CustomStateEnumB, nil)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = fsm.CurrentStateWithMetadata()
+	}
+}
+
 func Benchmark_accessTransitions(b *testing.B) {
 	fsm := NewFSM[CustomStateEnum](CustomStateEnumA, 10)
 	fsm.AddRule(CustomStateEnumA, CustomStateEnumB)
@@ -490,5 +521,62 @@ func Benchmark_unmarshalJSON(b *testing.B) {
 		if err != nil {
 			b.Errorf("UnmarshalJSON failed: %v", err)
 		}
+	}
+}
+
+func Test_currentStateWithMetadata(t *testing.T) {
+	// Test 1: No transitions yet
+	fsm1 := NewFSM[CustomStateEnum](CustomStateEnumA, 10)
+	state1, metadata1 := fsm1.CurrentStateWithMetadata()
+
+	if state1 != CustomStateEnumA {
+		t.Errorf("Expected state %v, got %v", CustomStateEnumA, state1)
+	}
+	if metadata1 != nil {
+		t.Errorf("Expected nil metadata, got %v", metadata1)
+	}
+
+	// Test 2: Last transition matches current state
+	fsm2 := NewFSM[CustomStateEnum](CustomStateEnumA, 10)
+	fsm2.AddRule(CustomStateEnumA, CustomStateEnumB)
+
+	expectedMetadata := map[string]string{
+		"reason": "test transition",
+		"user":   "test user",
+	}
+
+	fsm2.Transition(CustomStateEnumB, expectedMetadata)
+	state2, metadata2 := fsm2.CurrentStateWithMetadata()
+
+	if state2 != CustomStateEnumB {
+		t.Errorf("Expected state %v, got %v", CustomStateEnumB, state2)
+	}
+	if !reflect.DeepEqual(metadata2, expectedMetadata) {
+		t.Errorf("Expected metadata %v, got %v", expectedMetadata, metadata2)
+	}
+
+	// Test 3: Last transition doesn't match current state
+	fsm3 := NewFSM[CustomStateEnum](CustomStateEnumA, 10)
+	fsm3.AddRule(CustomStateEnumA, CustomStateEnumB)
+	fsm3.AddRule(CustomStateEnumB, CustomStateEnumC)
+
+	// First transition with metadata
+	metadata3a := map[string]string{"transition": "A->B"}
+	fsm3.Transition(CustomStateEnumB, metadata3a)
+
+	// Second transition with different metadata
+	metadata3b := map[string]string{"transition": "B->C"}
+	fsm3.Transition(CustomStateEnumC, metadata3b)
+
+	// Set current state back to B without recording a transition
+	fsm3.currentState = CustomStateEnumB
+
+	state3, metadata3 := fsm3.CurrentStateWithMetadata()
+
+	if state3 != CustomStateEnumB {
+		t.Errorf("Expected state %v, got %v", CustomStateEnumB, state3)
+	}
+	if metadata3 != nil {
+		t.Errorf("Expected nil metadata (last transition doesn't match), got %v", metadata3)
 	}
 }
